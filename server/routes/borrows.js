@@ -206,11 +206,65 @@ ${purpose || '个人练习使用'}
 });
 
 router.post('/', (req, res) => {
+  const instruments = readJSON('instruments.json', []);
+  const users = readJSON('users.json', []);
   const borrows = readJSON('borrows.json', []);
+  
+  const {
+    instrumentId,
+    borrowerId,
+    ownerId,
+    startDate,
+    endDate,
+    purpose,
+    handoverLocation,
+    depositPaid,
+    feeTotal,
+    agreement,
+    agreementConfirmed
+  } = req.body;
+  
+  if (!instrumentId || !borrowerId || !ownerId || !startDate || !endDate) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+  
+  const instrument = instruments.find(i => i.id === instrumentId);
+  const borrower = users.find(u => u.id === borrowerId);
+  const owner = users.find(u => u.id === ownerId);
+  
+  if (!instrument || !borrower || !owner) {
+    return res.status(400).json({ error: '乐器或用户信息无效' });
+  }
+  
+  if (instrument.status !== 'available') {
+    return res.status(400).json({ error: '该乐器当前不可借用' });
+  }
+  
+  if (!agreement || typeof agreement !== 'string' || agreement.trim().length < 50) {
+    return res.status(400).json({ error: '协议内容无效，请先预览并确认协议' });
+  }
+  
+  if (agreementConfirmed !== true) {
+    return res.status(400).json({ error: '请先阅读并确认借用协议' });
+  }
+  
+  if (!agreement.includes(instrument.name) || !agreement.includes(borrower.username) || !agreement.includes(owner.username)) {
+    return res.status(400).json({ error: '协议内容与当前借用信息不匹配，请重新预览协议' });
+  }
   
   const newBorrow = {
     id: 'b' + uuidv4().slice(0, 8),
-    ...req.body,
+    instrumentId,
+    borrowerId,
+    ownerId,
+    startDate,
+    endDate,
+    purpose: purpose || '',
+    handoverLocation: handoverLocation || instrument.location,
+    depositPaid: depositPaid || instrument.deposit,
+    feeTotal: feeTotal || 0,
+    agreement,
+    agreementConfirmed: true,
     status: 'pending',
     createdAt: new Date().toISOString()
   };

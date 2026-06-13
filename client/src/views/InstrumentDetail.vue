@@ -331,7 +331,8 @@ const submitBorrow = async () => {
       handoverLocation: borrowForm.handoverLocation || instrument.value.location,
       depositPaid: instrument.value.deposit,
       feeTotal: estimatedFee.value,
-      agreement: previewData.value.agreement
+      agreement: previewData.value.agreement,
+      agreementConfirmed: true
     })
     ElMessage.success('借用申请已发送，请等待主人确认！')
     showBorrow.value = false
