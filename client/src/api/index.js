@@ -39,6 +39,7 @@ export const instrumentApi = {
 export const borrowApi = {
   list: (params) => api.get('/borrows', { params }),
   get: (id) => api.get(`/borrows/${id}`),
+  preview: (data) => api.post('/borrows/preview', data),
   create: (data) => api.post('/borrows', data),
   update: (id, data) => api.put(`/borrows/${id}`, data)
 }

@@ -111,31 +111,76 @@
       </div>
     </div>
     
-    <el-dialog v-model="showBorrow" title="申请借用" width="500px">
-      <el-form :model="borrowForm" label-width="90px">
-        <el-form-item label="乐器">
-          <span>{{ instrument.name }}</span>
+    <el-dialog v-model="showBorrow" :title="borrowStep === 1 ? '申请借用' : '协议预览与确认'" width="600px" :close-on-click-modal="false">
+      <div v-if="borrowStep === 1">
+        <el-form :model="borrowForm" label-width="90px">
+          <el-form-item label="乐器">
+            <span>{{ instrument.name }}</span>
+          </el-form-item>
+          <el-form-item label="借用日期">
+            <el-date-picker
+              v-model="borrowForm.dates"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :disabled-date="disabledDate"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="交接地点">
+            <el-input v-model="borrowForm.handoverLocation" placeholder="请输入交接地点，默认为乐器所在地" />
+            <div class="form-tip">默认：{{ instrument.location }}</div>
+          </el-form-item>
+          <el-form-item label="借用目的">
+            <el-input v-model="borrowForm.purpose" type="textarea" :rows="3" placeholder="请描述借用目的，如：练习演出曲目等" />
+          </el-form-item>
+          <el-form-item label="费用预估">
+            <span class="text-danger">押金 ¥{{ instrument.deposit }} + 租金 ¥{{ estimatedFee }} = 共 ¥{{ instrument.deposit + estimatedFee }}</span>
+          </el-form-item>
+        </el-form>
+      </div>
+      
+      <div v-else class="agreement-preview">
+        <div class="agreement-header">
+          <el-icon :size="24" color="#409eff"><Document /></el-icon>
+          <span class="agreement-title">乐器借用协议</span>
+        </div>
+        <div class="agreement-summary">
+          <div class="summary-item">
+            <span class="label">借用乐器：</span>
+            <span class="value">{{ instrument.name }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">借用期限：</span>
+            <span class="value">{{ previewData?.summary?.startDate }} 至 {{ previewData?.summary?.endDate }}（共{{ previewData?.summary?.days }}天）</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">交接地点：</span>
+            <span class="value">{{ previewData?.summary?.handoverLocation }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">费用合计：</span>
+            <span class="value text-danger">¥{{ previewData?.summary?.totalAmount }}</span>
+          </div>
+        </div>
+        <div class="agreement-text">
+          <pre>{{ previewData?.agreement }}</pre>
+        </div>
+        <el-form-item class="agree-item">
+          <el-checkbox v-model="agreed">我已阅读并同意以上《乐器借用协议》的全部条款</el-checkbox>
         </el-form-item>
-        <el-form-item label="借用日期">
-          <el-date-picker
-            v-model="borrowForm.dates"
-            type="daterange"
-            range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            :disabled-date="disabledDate"
-          />
-        </el-form-item>
-        <el-form-item label="借用目的">
-          <el-input v-model="borrowForm.purpose" type="textarea" :rows="3" placeholder="请描述借用目的，如：练习演出曲目等" />
-        </el-form-item>
-        <el-form-item label="费用预估">
-          <span class="text-danger">押金 ¥{{ instrument.deposit }} + 租金 ¥{{ estimatedFee }} = 共 ¥{{ instrument.deposit + estimatedFee }}</span>
-        </el-form-item>
-      </el-form>
+      </div>
+      
       <template #footer>
-        <el-button @click="showBorrow = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitBorrow">提交申请</el-button>
+        <template v-if="borrowStep === 1">
+          <el-button @click="showBorrow = false">取消</el-button>
+          <el-button type="primary" :loading="previewLoading" @click="previewAgreement">下一步：预览协议</el-button>
+        </template>
+        <template v-else>
+          <el-button @click="borrowStep = 1">上一步</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!agreed" @click="submitBorrow">确认并提交申请</el-button>
+        </template>
       </template>
     </el-dialog>
     
@@ -171,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, inject } from 'vue'
+import { ref, reactive, computed, onMounted, inject, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { instrumentApi, borrowApi, invitationApi, reviewApi } from '../api'
@@ -188,10 +233,15 @@ const ownerReviews = ref([])
 const showBorrow = ref(false)
 const showInvite = ref(false)
 const submitting = ref(false)
+const previewLoading = ref(false)
+const borrowStep = ref(1)
+const previewData = ref(null)
+const agreed = ref(false)
 
 const borrowForm = reactive({
   dates: null,
-  purpose: ''
+  purpose: '',
+  handoverLocation: ''
 })
 
 const inviteForm = reactive({
@@ -210,6 +260,14 @@ const estimatedFee = computed(() => {
   return days * instrument.value.dailyFee
 })
 
+watch(showBorrow, (val) => {
+  if (!val) {
+    borrowStep.value = 1
+    previewData.value = null
+    agreed.value = false
+  }
+})
+
 const disabledDate = (time) => {
   return time.getTime() < Date.now() - 8.64e7
 }
@@ -225,7 +283,7 @@ onMounted(async () => {
   }
 })
 
-const submitBorrow = async () => {
+const previewAgreement = async () => {
   if (!userStore.isLoggedIn) {
     showBorrow.value = false
     requireLogin()
@@ -233,6 +291,32 @@ const submitBorrow = async () => {
   }
   if (!borrowForm.dates) {
     ElMessage.warning('请选择借用日期')
+    return
+  }
+  previewLoading.value = true
+  try {
+    const result = await borrowApi.preview({
+      instrumentId: instrument.value.id,
+      borrowerId: userStore.userId,
+      ownerId: instrument.value.ownerId,
+      startDate: borrowForm.dates[0].toISOString().split('T')[0],
+      endDate: borrowForm.dates[1].toISOString().split('T')[0],
+      purpose: borrowForm.purpose,
+      handoverLocation: borrowForm.handoverLocation || instrument.value.location
+    })
+    previewData.value = result
+    agreed.value = false
+    borrowStep.value = 2
+  } catch (e) {
+    ElMessage.error('生成协议失败')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+const submitBorrow = async () => {
+  if (!agreed.value) {
+    ElMessage.warning('请先阅读并同意借用协议')
     return
   }
   submitting.value = true
@@ -244,11 +328,14 @@ const submitBorrow = async () => {
       startDate: borrowForm.dates[0].toISOString().split('T')[0],
       endDate: borrowForm.dates[1].toISOString().split('T')[0],
       purpose: borrowForm.purpose,
+      handoverLocation: borrowForm.handoverLocation || instrument.value.location,
       depositPaid: instrument.value.deposit,
-      feeTotal: estimatedFee.value
+      feeTotal: estimatedFee.value,
+      agreement: previewData.value.agreement
     })
     ElMessage.success('借用申请已发送，请等待主人确认！')
     showBorrow.value = false
+    borrowStep.value = 1
     router.push('/messages')
   } catch (e) {
     ElMessage.error('提交失败')
@@ -529,6 +616,79 @@ const submitInvite = async () => {
 
 .mt-20 {
   margin-top: 20px;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.agreement-preview {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.agreement-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--primary-color);
+}
+
+.agreement-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary-color);
+}
+
+.agreement-summary {
+  background: var(--bg-light);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.summary-item {
+  display: flex;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.summary-item .label {
+  color: var(--text-secondary);
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.summary-item .value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.agreement-text {
+  background: #fafafa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.agreement-text pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.agree-item {
+  margin-bottom: 0;
+  justify-content: center;
 }
 
 @media (max-width: 900px) {
